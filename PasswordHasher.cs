@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Cryptography.KeyDerivation;
 
@@ -66,7 +66,7 @@ namespace Rstolsmark.PasswordHashLib
 
             // Hash the incoming password and verify it
             var actualSubkey = KeyDerivation.Pbkdf2(providedPassword, salt, prf, iterCount, subkeyLength);
-            return actualSubkey.SequenceEqual(expectedSubkey);
+            return FixedTimeEquals(actualSubkey, expectedSubkey);
         }
         private static void WriteNetworkByteOrder(byte[] buffer, int offset, uint value)
         {
@@ -82,6 +82,34 @@ namespace Rstolsmark.PasswordHashLib
                 | ((uint)(buffer[offset + 1]) << 16)
                 | ((uint)(buffer[offset + 2]) << 8)
                 | ((uint)(buffer[offset + 3]));
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        private static bool FixedTimeEquals(byte[] left, byte[] right)
+        {
+            // This method compares two buffers' contents for equality in a manner which does
+            // not leak timing information. To ensure this, we provide two JIT optimization hints:
+            //
+            // - NoOptimization because we want this method to be exactly as non-short-circuiting as written.
+            // - NoInlining because the NoOptimization would get lost if the method got inlined.
+            //
+            // We only short-circuit and return false if left and right have different lengths. In all other
+            // cases, fixed-time behavior is guaranteed, including if left and right reference the same address.
+
+            if (left.Length != right.Length)
+            {
+                return false;
+            }
+
+            var accumulator = 0;
+            var length = left.Length;
+
+            for (var i = 0; i < length; i++)
+            {
+                accumulator |= left[i] - right[i];
+            }
+
+            return accumulator == 0;
         }
     }
 }
